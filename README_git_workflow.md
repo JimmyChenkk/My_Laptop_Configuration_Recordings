@@ -291,7 +291,7 @@ git config --global init.defaultBranch main
 
 ```powershell
 ssh-keygen -t ed25519 -C "chenkunlong101@gmail.com"
-Get-Service ssh-agent | Set-Service -StartupType Manual
+Set-Service ssh-agent -StartupType Manual
 Start-Service ssh-agent
 ssh-add $HOME\.ssh\id_ed25519
 Get-Content $HOME\.ssh\id_ed25519.pub
@@ -309,7 +309,44 @@ Get-Content $HOME\.ssh\id_ed25519.pub
 ssh -T git@github.com
 ```
 
-### 4. 在 Windows clone 仓库
+### 4. Windows 上 `ssh-agent` 可能看起来“没生效”的原因
+
+在 Windows 上，常见会同时存在两套 SSH：
+
+- Windows 自带 OpenSSH：`C:\Windows\System32\OpenSSH\ssh.exe`
+- Git for Windows 自带 SSH：例如 `C:\Program Files\Git\usr\bin\ssh.exe`
+
+如果你是用 Windows 的 `ssh-agent` 和 `ssh-add` 加载私钥，但 `git push` 实际调用的是 Git 自带那套 SSH，就可能出现这种现象：
+
+- `ssh-add -l` 能看到密钥
+- `git push` 还是继续要求输入 `passphrase`
+
+一个明显信号是提示里出现了这种路径风格：
+
+```text
+/c/Users/chenk/.ssh/id_ed25519
+```
+
+这通常说明 Git 正在走 Git for Windows / MSYS 风格的 SSH，而不是 Windows OpenSSH。
+
+### 5. 让 Git 明确使用 Windows OpenSSH
+
+如果你希望 `ssh-agent` 真正接管 `git push`，可以明确指定：
+
+```powershell
+git config --global core.sshCommand "C:/Windows/System32/OpenSSH/ssh.exe"
+```
+
+然后重新打开 PowerShell，再检查：
+
+```powershell
+ssh-add -l
+git push
+```
+
+如果 `git push` 不再要求输入 `passphrase`，就说明已经打通。
+
+### 6. 在 Windows clone 仓库
 
 ```powershell
 cd C:\Users\chenk\Desktop\Workspace
@@ -326,7 +363,7 @@ Path
 C:\Users\chenk\Desktop\Workspace\<仓库名>
 ```
 
-### 5. 用 VS Code 打开
+### 7. 用 VS Code 打开
 
 ```powershell
 code .
@@ -389,20 +426,46 @@ git remote remove origin
 git remote add origin git@github.com:JimmyChenkk/<仓库名>.git
 ```
 
+如果你收到：
+
+```text
+error: remote origin already exists.
+```
+
+说明这个仓库已经记录过一个 `origin` 了。这时不要再 `add`，而是改地址：
+
+```bash
+git remote set-url origin git@github.com:JimmyChenkk/<仓库名>.git
+```
+
 ### 情况 B：目录里没有 `.git`
 
 这说明它只是“普通文件夹”，还不是 Git 仓库。
 
-这时才需要：
+这时才需要先在本地初始化：
 
 ```bash
 git init
 git branch -M main
 git add .
 git commit -m "chore: initial import"
+```
+
+上面这几步都只发生在本地，不要求 GitHub 先有仓库。
+
+但如果你接下来想 `push` 到 GitHub，就还需要一个已经存在的远端仓库。最常见做法是先去 GitHub 网页建一个空仓库，然后再把它接上：
+
+```bash
 git remote add origin git@github.com:JimmyChenkk/<仓库名>.git
 git push -u origin main
 ```
+
+也就是说：
+
+- `git init`：只是在本地把普通文件夹变成 Git 仓库
+- `git commit`：只是在本地生成提交历史
+- `git remote add origin ...`：告诉本地仓库将来要连到哪个远端
+- `git push`：把本地提交真正推到远端，所以这一步要求远端仓库已经存在
 
 ### 情况 C：旧移动硬盘上有老仓库
 
@@ -420,6 +483,56 @@ git status
 git log --oneline --decorate --graph -20
 git remote -v
 ```
+
+## 第一次 push 常见情况
+
+### 1. `Repository not found`
+
+这通常表示：
+
+- GitHub 上这个仓库还不存在
+- 或者仓库名 / 大小写写错了
+- 或者你当前 GitHub 账号没有访问权限
+
+如果你是新建仓库后第一次推送，最常见原因就是 GitHub 网页端还没先建这个仓库。
+
+### 2. `This repository moved. Please use the new location`
+
+这表示仓库曾经改过名字，或 GitHub 记录的规范地址已经变化。
+
+例如你原来用的是：
+
+```text
+git@github.com:JimmyChenkk/my_laptop_configuration_recordings.git
+```
+
+但 GitHub 提示应改成：
+
+```text
+git@github.com:JimmyChenkk/My_Laptop_Configuration_Recordings.git
+```
+
+这种情况下，GitHub 往往仍会先帮你重定向，所以这次 `push` 可能还是成功的。
+
+但更干净的做法是把本地远端地址也改正：
+
+```bash
+git remote set-url origin git@github.com:JimmyChenkk/My_Laptop_Configuration_Recordings.git
+git remote -v
+```
+
+### 3. `branch 'main' set up to track 'origin/main'`
+
+这表示第一次推送成功，而且本地 `main` 已经开始跟踪远端 `origin/main`。
+
+后面再执行普通的：
+
+```bash
+git push
+git pull
+```
+
+通常就够了。
 
 ## 换电脑时，到底哪些东西要迁移
 
@@ -461,6 +574,16 @@ git remote -v
 - 但每个环境都要有自己的访问凭证，或者能使用已有凭证
 - 新电脑换了以后，最常见的事不是“仓库没了”，而是“这台新机器还没配 SSH key”
 
+### passphrase 和 ssh-agent 的关系
+
+- `passphrase` 可以理解成“本地私钥自己的密码”
+- 它保护的是私钥文件，不是 GitHub 账号密码
+- `ssh-agent` 的作用是缓存“已经解锁过的私钥”，避免你每次 `push` 都重新输入 `passphrase`
+
+如果你没有给私钥设置 `passphrase`，那通常就不太需要 `ssh-agent`。
+
+如果你设置了 `passphrase`，那 `ssh-agent` 的价值会明显变大。
+
 ## Codex 配合方式
 
 ### 如果仓库在 WSL
@@ -482,6 +605,7 @@ git remote -v
 - 以为 SSH 是“每个仓库绑定一次”
 - 以为换电脑后 GitHub 上的仓库会跟着消失
 - 以为只拷走工作文件、不拷 `.git` 也等于完整迁移仓库
+- 在 Windows 上用了 `ssh-agent`，却没注意 Git 实际调用的是另一套 SSH
 - 让 Codex 改完就直接提交，不先看 `git diff`
 - 把 `.env`、密钥、令牌、数据库文件直接提交进仓库
 
