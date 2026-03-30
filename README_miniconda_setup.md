@@ -152,6 +152,58 @@ conda env list
 conda deactivate
 ```
 
+## 常见问题记录
+
+### `CondaToSNonInteractiveError`
+
+在 WSL 里执行下面命令时：
+
+```bash
+conda create -n tep_env python=3.10 -y
+```
+
+如果出现：
+
+```text
+CondaToSNonInteractiveError: Terms of Service have not been accepted for the following channels.
+```
+
+通常表示当前 Conda 还没有接受 `defaults` 对应源的服务条款，常见是这两个 channel：
+
+- `https://repo.anaconda.com/pkgs/main`
+- `https://repo.anaconda.com/pkgs/r`
+
+这次实际可用的处理命令是：
+
+```bash
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+```
+
+接受后重新执行：
+
+```bash
+conda create -n tep_env python=3.10 -y
+```
+
+本次已经成功创建，环境路径显示为：
+
+```text
+/home/chenk/miniconda3/envs/tep_env
+```
+
+后续验证命令：
+
+```bash
+conda env list
+conda activate tep_env
+```
+
+判断成功的标志：
+
+- `conda env list` 里能看到 `tep_env`
+- 激活后命令行前缀变成 `(tep_env)`
+
 ## 常用维护命令
 
 更新 Conda：
